@@ -707,17 +707,17 @@ unsigned IconThreadThreadFBody(void* parameter)
                                     }
                                 }
                                 else
-                                    callWaitForObjects = FALSE; // zadna prace -> zadne zdrzovani
+                                    callWaitForObjects = FALSE; // no work -> no waiting
                             }
                             else
                             {
                                 if (iconData->GetReadingDone() == 0 &&
                                     iconData->GetFlag() == wanted)
                                 {
-                                    iconData->SetReadingDone(1);    // oznacime si, ze s touto ikonou uz jsme pracovali, at to zbytecne nezkousime znovu jeste behem tohoto cyklu
-                                    if (wanted == 0 || wanted == 2) // nacitani ikonek primo ze souboru nebo z plug-inu
+                                    iconData->SetReadingDone(1);    // we mark that we have already worked with this icon so we do not try again during this cycle
+                                    if (wanted == 0 || wanted == 2) // loading icons directly from a file or from a plug-in
                                     {
-                                        if (!pluginFSIconsFromPlugin) // ikona na disku
+                                        if (!pluginFSIconsFromPlugin) // icon on disk
                                         {
                                             if (strlen(iconData->NameAndData) + (name - path) < MAX_PATH)
                                             {
@@ -731,10 +731,10 @@ unsigned IconThreadThreadFBody(void* parameter)
                                                 {
                                                     waitBeforeFirstReadIcon = FALSE;
                                                     //                            TRACE_I("Waiting 500ms before reading first icon in second round to have bigger chance to succeed.");
-                                                    Sleep(500); // dame si chvili oraz (pred druhym pokusem o nacteni ikony)
+                                                    Sleep(500); // let's pause for a moment (before the second attempt to load the icon)
                                                 }
 
-                                                // nechame nacist ikonu ze souboru, icon-reader behem nacitani muze prejit do sleep-modu
+                                                // we let the icon load from the file; the icon reader may enter sleep mode during loading
                                                 CALL_STACK_MESSAGE3("IconThreadThreadFBody::GetFileIcon(%s, %d)", path, iconSize);
 
                                                 if (!pathIsInvalid)
@@ -760,7 +760,7 @@ unsigned IconThreadThreadFBody(void* parameter)
                                                 TRACE_I("Too long filename to get icon from: " << path << iconData->NameAndData);
                                             }
                                         }
-                                        else // ikona v plug-inovem FS - nacitani je neprerusitelne (hrozi zruseni PluginData)
+                                        else // icon in a plug-in FS - reading cannot be interrupted (risk of PluginData being destroyed)
                                         {
                                             const CFileData* f = iconData->GetFSFileData();
                                             if (f != NULL)
@@ -782,17 +782,17 @@ unsigned IconThreadThreadFBody(void* parameter)
                                     }
                                     else
                                     {
-                                        if (wanted == 3) // nacitani ikonek z icon-location
+                                        if (wanted == 3) // loading icons from the icon-location
                                         {
                                             shi.hIcon = NULL;
                                             char* nameAndData = iconData->NameAndData;
                                             int size = (int)strlen(nameAndData) + 4;
-                                            size -= (size & 0x3);         // size % 4  (zarovnani po ctyrech bytech)
-                                            char* s = nameAndData + size; // preskok zarovnani z nul
+                                            size -= (size & 0x3);         // size % 4 (four bytesalignment)
+                                            char* s = nameAndData + size; // skip the alignment zeros
                                             BOOL doExtractIcons = FALSE;
                                             BOOL doLoadImage = FALSE;
                                             int index = -1;
-                                            char* num = strrchr(s, ','); // cislo ikony je za posledni carkou
+                                            char* num = strrchr(s, ','); // icon index comes after the last comma
                                             if (num != NULL)
                                             {
                                                 *num = 0;
@@ -827,13 +827,13 @@ unsigned IconThreadThreadFBody(void* parameter)
                                             {
                                                 waitBeforeFirstReadIcon = FALSE;
                                                 //                          TRACE_I("Waiting 500ms before reading first icon in second round to have bigger chance to succeed.");
-                                                Sleep(500); // dame si chvili oraz (pred druhym pokusem o nacteni ikony)
+                                                Sleep(500); // let's take a short break (before the second attempt to load the icon)
                                             }
 
                                             if (doExtractIcons)
                                             {
-                                                // nechame nacist ikonu ze souboru (z resourcu vytahne podle indexu), icon-reader
-                                                // behem nacitani muze prejit do sleep-modu
+                                                // we let the icon loadfrom the file (ExtractIcons retrieves it by index);
+                                                // the icon reader may go to sleep mode while loading
                                                 CALL_STACK_MESSAGE4("IconThreadThreadFBody::ExtractIcons(%s, %d, %d, ...)", path, index, IconSizes[iconSize]);
                                                 if (ExtractIcons(path, index, IconSizes[iconSize], IconSizes[iconSize], &shi.hIcon, NULL, 1, IconLRFlags) != 1)
                                                 {
@@ -847,16 +847,16 @@ unsigned IconThreadThreadFBody(void* parameter)
                                             if (doLoadImage)
                                             {
                                                 {
-                                                    // nechame nacist ikonu ze souboru (nejspis .ico), icon-reader behem nacitani
-                                                    // muze prejit do sleep-modu
+                                                    // we let the icon load from a file (likely .ico); 
+                                                    // the icon reader can switch to sleep mode during loading
                                                     CALL_STACK_MESSAGE2("IconThreadThreadFBody::LoadImage(%s)", path);
                                                     shi.hIcon = (HICON)NOHANDLES(LoadImage(NULL, path, IMAGE_ICON, IconSizes[iconSize], IconSizes[iconSize],
                                                                                            LR_LOADFROMFILE | IconLRFlags));
                                                     //                            TRACE_I("LoadImage " << (shi.hIcon == NULL ? "has failed, now trying ExtractIcons..." : "is done."));
                                                 }
-                                                if (shi.hIcon == NULL) // pres LoadImage se to nepovedlo, zkusime jeste ExtractIcons (napr. ikona bez indexu ze zipfldr.dll pod XP: .zip archiv zabaleny v .7z archivu)
+                                                if (shi.hIcon == NULL) // LoadImage failed; we try ExtractIcons as well (e.g., an icon without index from zipfldr.dll under XP: a .zip archive packed in a .7z archive)
                                                 {
-                                                    // nechame nacist prvni ikonu ze souboru, icon-reader behem nacitani muze prejit do sleep-modu
+                                                    // we let the first icon load from the file; the icon reader may enter sleep mode during loading
                                                     CALL_STACK_MESSAGE3("IconThreadThreadFBody::ExtractIcons(%s, (0), %d, ...)", path, IconSizes[iconSize]);
                                                     if (ExtractIcons(path, 0, IconSizes[iconSize], IconSizes[iconSize], &shi.hIcon, NULL, 1, IconLRFlags) != 1)
                                                     {
@@ -870,14 +870,14 @@ unsigned IconThreadThreadFBody(void* parameter)
 
                                             HANDLES(EnterCriticalSection(&window->ICSleepSection));
                                         }
-                                        else // wanted == 4 nebo 6; nacitani thumbnailu z plug-inu ("thumbnail loader")
+                                        else // wanted == 4 or 6; loading thumbnails from a plug-in ("thumbnail loader")
                                         {
-                                            shi.hIcon = NULL; // opatreni proti chybne dealokaci ikony (zadna tu nevznika)
+                                            shi.hIcon = NULL; // precaution against incorrect icon deallocation (none is created here)
 
                                             char* s = iconData->NameAndData;
                                             int len = (int)strlen(s);
                                             int size = len + 4;
-                                            size -= (size & 0x3); // size % 4  (zarovnani po ctyrech bytech)
+                                            size -= (size & 0x3); // size % 4 (four bytes alignment)
                                             if (strlen(s) + (name - path) < MAX_PATH)
                                             {
                                                 strcpy(name, s);
@@ -892,14 +892,14 @@ unsigned IconThreadThreadFBody(void* parameter)
                                                     CALL_STACK_MESSAGE3("IconThreadThreadFBody::LoadThumbnail(%s, %d)", path, wanted == 4);
                                                     if ((*loader)->LoadThumbnail(path, thumbnailSize, thumbnailSize, &thumbMaker, wanted == 4))
                                                     {
-                                                        thumbnailFlag = wanted == 4 /* prvni kolo nacitani thumbnailu */ ? (thumbMaker.IsOnlyPreview() ? 6 /* nekvalitni/mensi */ : 5 /* kvalitni */) : 5 /* v druhem kole uz jsou vsechny ziskane thumbnaily kvalitni */;
+                                                        thumbnailFlag = wanted == 4 /* first thumbnail loading round */ ? (thumbMaker.IsOnlyPreview() ? 6 /* low-quality/smaller */ : 5 /* quality */) : 5 /* in the second round all obtained thumbnails are quality */;
                                                         thumbMaker.HandleIncompleteImages();
-                                                        break; // thumbnail je mozna nacteny (kazdopadne se nema zkouset dalsi plugin)
+                                                        break; // the thumbnail may be loaded (in any case we should not try another plug-in)
                                                     }
-                                                    loader++; // zkusime dalsi plugin v rade, treba thumbnail nacte
+                                                    loader++; // we try the next plug-in in line, it might load the thumbnail
                                                 }
                                                 if (*loader == NULL)
-                                                    thumbMaker.Clear(); // nepovedeny thumbnail -> radsi udelame cistku
+                                                    thumbMaker.Clear(); // failed thumbnail -> we clean it up
                                                                         //                          TRACE_I("Load thumbnail is done.");
                                             }
                                             else
@@ -911,11 +911,11 @@ unsigned IconThreadThreadFBody(void* parameter)
                                         }
                                     }
 
-                                    if (window->ICSleep) // panel uz chce prejit do sleep-modu
+                                    if (window->ICSleep) // the panel wants to switch to sleep mode already
                                     {
-                                        thumbMaker.Clear(); // thumbnail uz nebude potreba
+                                        thumbMaker.Clear(); // the thumbnail will no longer be needed
 
-                                        // pokud to neni ikona z plug-inu, ktery si nepreje ruseni ikony, zrusime ikonu
+                                        // if this is not an icon from a plug-in that forbids icon destruction, we destroy the icon
                                         if (shi.hIcon != NULL && (!pluginFSIconsFromPlugin || destroyPluginIcon))
                                         {
                                             ::NOHANDLES(DestroyIcon(shi.hIcon));
@@ -923,7 +923,7 @@ unsigned IconThreadThreadFBody(void* parameter)
                                         goto GO_SLEEP_MODE;
                                     }
 
-                                    if (wanted <= 3) // ziskavali jsme ikonu
+                                    if (wanted <= 3) // we were obtaining an icon
                                     {
                                         if (shi.hIcon == NULL)
                                             failed = TRUE;
@@ -935,13 +935,13 @@ unsigned IconThreadThreadFBody(void* parameter)
                                                 HANDLES(EnterCriticalSection(&window->ICSectionUsingIcon));
 
                                                 iconList->ReplaceIcon(iconListIndex, shi.hIcon);
-                                                iconData->SetFlag(1); // uz je nactena
+                                                iconData->SetFlag(1); // it is already loaded
 
                                                 HANDLES(LeaveCriticalSection(&window->ICSectionUsingIcon));
 
-                                                // najdeme index polozky, ktere jsme nacetli ikonu
+                                                // we find the index of the item for which we loaded the icon
 
-                                                if (pluginFSIconsFromPlugin) // pitFromPlugin: nechame plugin, aby polozky porovnal sam (musi jit o porovnani beze shod zadnych dvou polozek listingu)
+                                                if (pluginFSIconsFromPlugin) // pitFromPlugin: we let the plug-in compare items itself (must compare with no duplicates)
                                                 {
                                                     const CFileData* file = iconData->GetFSFileData();
                                                     if (file != NULL)
@@ -957,7 +957,7 @@ unsigned IconThreadThreadFBody(void* parameter)
                                                                 break;
                                                             }
                                                         }
-                                                        if (z == window->Dirs->Count) // nebyl to adresar
+                                                        if (z == window->Dirs->Count) // it was not a directory
                                                         {
                                                             arr = window->Files;
                                                             int j;
@@ -973,8 +973,8 @@ unsigned IconThreadThreadFBody(void* parameter)
                                                         }
                                                     }
                                                 }
-                                                else // nehrozi duplicitni jmena (nebo nejsou na prekazku jako napr. u archivu, kde
-                                                {    // nemuzou byt ruzne ikony pri shodnych jmenech)
+                                                else // duplicate names are not a problem (or at least they are not an issue 
+                                                {    // unlike e.g. archives where identical names cannot have different icons)
                                                     char* name2 = iconData->NameAndData;
                                                     CFilesArray* arr = window->Dirs;
                                                     int z;
@@ -986,7 +986,7 @@ unsigned IconThreadThreadFBody(void* parameter)
                                                             break;
                                                         }
                                                     }
-                                                    if (z == window->Dirs->Count) // nebyl to adresar
+                                                    if (z == window->Dirs->Count) // it was not a directory
                                                     {
                                                         arr = window->Files;
                                                         int j;
@@ -1002,14 +1002,14 @@ unsigned IconThreadThreadFBody(void* parameter)
                                                     }
                                                 }
                                             }
-                                            // pokud to neni ikona z plug-inu, ktery si nepreje ruseni ikony, zrusime ikonu
+                                            // if this is not an icon from a plug-in that forbids icon destruction, we destroy the icon
                                             if (!pluginFSIconsFromPlugin || destroyPluginIcon)
                                             {
                                                 ::NOHANDLES(DestroyIcon(shi.hIcon));
                                             }
                                         }
                                     }
-                                    else // ziskavali jsme thumbnail
+                                    else // we were obtaining a thumbnail
                                     {
                                         if (thumbMaker.ThumbnailReady())
                                         {
@@ -1023,16 +1023,16 @@ unsigned IconThreadThreadFBody(void* parameter)
                                                 thumbMaker.TransformThumbnail();
                                                 if (thumbMaker.RenderToThumbnailData(thumbnailData))
                                                 {
-                                                    iconData->SetFlag(thumbnailFlag); // uz je nacteny
-                                                    if (thumbnailFlag == 6 /* nekvalitni/mensi thumbnail v prvnim kole nacitani thumbnailu*/)
-                                                        iconData->SetReadingDone(0); // bude nasledovat druhe kolo cteni, takze jestli neni "done"
+                                                    iconData->SetFlag(thumbnailFlag); // already loaded
+                                                    if (thumbnailFlag == 6 /* low-quality/smaller thumbnail in the first thumbnail loading round */)
+                                                        iconData->SetReadingDone(0); // another round will follow, so mark as not "done"
                                                     thumbnailCreated = TRUE;
                                                 }
                                                 HANDLES(LeaveCriticalSection(&window->ICSectionUsingThumb));
 
                                                 if (thumbnailCreated)
                                                 {
-                                                    // najdeme index souboru (adresare nemaji thubnaily), kteremu jsme nacetli thumbnail
+                                                    // we find the index of the file (directories don't have thumbnails) for which we loaded the thumbnail
                                                     char* name2 = iconData->NameAndData;
                                                     int z;
                                                     for (z = 0; z < window->Files->Count; z++)
@@ -1047,23 +1047,23 @@ unsigned IconThreadThreadFBody(void* parameter)
                                                 }
                                             }
                                         }
-                                        thumbMaker.Clear(); // thumbnail uz nebude potreba
+                                        thumbMaker.Clear(); // the thumbnail will not be needed anymore
                                     }
                                 }
                                 else
-                                    callWaitForObjects = FALSE; // zadna prace -> zadne zdrzovani
+                                    callWaitForObjects = FALSE; // no work -> no waiting
                             }
                         }
                         else
                         {
-                            someNameSkipped = TRUE;     // preskocili jsme aspon jedno jmeno
-                            callWaitForObjects = FALSE; // zadna prace -> zadne zdrzovani
+                            someNameSkipped = TRUE;     // at least one name was skipped
+                            callWaitForObjects = FALSE; // no work -> no waiting
                         }
                     }
                     else
                     {
                         if (canReadIconOverlays && !readIconOverlaysNow)
-                        { // ted jdeme cist icon-overlaye
+                        { // now we are going to read icon overlays
                             i = 0;
                             readIconOverlaysNow = TRUE;
                             //                TRACE_I("readIconOverlaysNow=" << readIconOverlaysNow);
@@ -1083,35 +1083,35 @@ unsigned IconThreadThreadFBody(void* parameter)
                             continue;
                         }
 
-                        // prvni kolo cteni ikon je za nami, takze vsechny icon-overlaye uz jsou nactene -> zamezime zbytecnemu snazeni o jejich dalsi cteni
+                        // the first icon-reading round is over, so all icon overlays are loaded -> we prevent needless attempts to read them again
                         canReadIconOverlays = FALSE;
 
-                        // poradi nacitani: nove ikony, nove thumbnaily, stare ikony, stare thumbnaily
-                        BOOL done = FALSE; // TRUE == breakni, uz mame nacteno
+                        // loading order: new icons, new thumbnails, old icons, old thumbnails
+                        BOOL done = FALSE; // TRUE == break, everything is loaded
                         switch (wanted)
                         {
-                        case 0: // nove ikony uz jsme nacetli
+                        case 0: // new icons have already been loaded
                         {
-                            // pokud se maji cist thumbnaily a jde o prvni kolo cteni (pluginy nefunguji
-                            // nahodne jako system, takze nenactou poprve = nenactou nikdy), nacteme
-                            // nove thumbnaily (wanted == 4)
+                            // if thumbnails should be read and this is the first round (plug-ins do not work
+                            // randomly like the system, so if they fail the first time they will never load), we load
+                            // new thumbnails (wanted == 4)
                             if (readThumbnails && firstRound)
                                 wanted = 4;
                             else
-                                wanted = 2; // jinak obnovime (nacteme znovu) stare (prevzate) ikony
+                                wanted = 2; // otherwise we reload old (inherited) icons
                             break;
                         }
 
-                        case 4: // nove thumbnaily uz jsme nacetli
+                        case 4: // new thumbnails have already been loaded
                         {
-                            wanted = 2; // obnovime (nacteme znovu) stare (prevzate) ikony
+                            wanted = 2; // we reload old (inherited) icons
                             break;
                         }
 
-                        case 2: // stare ikony uz jsme nacetli
+                        case 2: // old icons have already been loaded
                         {
                             if (readThumbnails && firstRound)
-                                wanted = 6; // obnovime (nacteme znovu) stare (prevzate + nekvalitni/mensi) thumbnaily
+                                wanted = 6; // wereload old (inherited + low-quality/smaller) thumbnails
                             else
                                 done = TRUE;
                             break;
@@ -1122,7 +1122,7 @@ unsigned IconThreadThreadFBody(void* parameter)
                             break;
                         }
                         if (done)
-                            break; // hotovo - wanted 0 a 2 nebo 0, 4, 2 a 6 nebo jen 3 nebo -1 (chyba)
+                            break; // finished - wanted 0 and 2 or 0, 4, 2 and 6 or just 3 or -1 (error)
 
                         //              TRACE_I("wanted=" << wanted);
 
@@ -1136,24 +1136,24 @@ unsigned IconThreadThreadFBody(void* parameter)
                             continue;
                         }
 
-                        i = -1;                     // aby se 'i' dostalo na nulu
-                        callWaitForObjects = FALSE; // zadna prace -> zadne zdrzovani
+                        i = -1;                     // ensure 'i' becomes zero
+                        callWaitForObjects = FALSE; // no work -> no waiting
                     }
 
                     i++;
                     if (callWaitForObjects)
                     {
                         wait = WaitForMultipleObjects(2, handles, FALSE, 0);
-                        // nebudeme ignorovat signal "work", protoze kazdy "sleep->wake-up" znamena zacit praci od zacatku
+                        // we will not ignore the "work" signal because each "sleep->wake-up" means starting the work from the beginning
                         if (wait != WAIT_TIMEOUT)
-                            break; // zpracuj wait udalost
+                            break; // process the wait event
                     }
-                    // else wait = WAIT_TIMEOUT;  // zbytecne, wait uz je roven WAIT_TIMEOUT
+                    // else wait = WAIT_TIMEOUT;  // unnecessary, wait is already equal to WAIT_TIMEOUT
                 }
                 repeatedRound = FALSE;
 
                 if (wait == WAIT_TIMEOUT && readOnlyVisibleItemsDueToUMI)
-                { // nemusi byt nactene vsechny ikony kvuli poskytnute priorite pro ikony do usermenu (ctou se drive nez ikony mimo viditelnou plochu panelu)
+                { // not all icons must be loaded due to priority given to icons in usermenu (they are read before icons outside the visible area)
                     if (UserMenuIconBkgndReader.IsReadingIcons())
                     {
                         //              TRACE_I("Visible icons done, giving priority to usermenu icons...");
@@ -1163,18 +1163,18 @@ unsigned IconThreadThreadFBody(void* parameter)
                                 goto GO_SLEEP_MODE;
                             HANDLES(LeaveCriticalSection(&window->ICSleepSection));
 
-                            wait = WaitForMultipleObjects(2, handles, FALSE, 100); // dame cas pro nacitani ikon usermenu
+                            wait = WaitForMultipleObjects(2, handles, FALSE, 100); // we give some time for usermenu icons loading
 
                             HANDLES(EnterCriticalSection(&window->ICSleepSection));
                             if (window->ICSleep)
-                                goto GO_SLEEP_MODE; // panel uz chce prejit do sleep-modu
+                                goto GO_SLEEP_MODE; // the panel already wants to switch to sleep mode
 
                             if (wait != WAIT_TIMEOUT)
                             {
                                 //                  TRACE_I("Handling event...");
-                                break; // zpracuj wait udalost
+                                break; // process the wait event
                             }
-                            int visArrVer; // zkontrolujeme, jestli se nezmenila viditelna oblast panelu, pokud ano, musime jit cist ikony
+                            int visArrVer; // we check if the visible area changed; if so we must start reading icons again
                             if (someNameSkipped && window->VisibleItemsArray.IsArrValid(&visArrVer) && visArrVer != lastVisArrVersion)
                             {
                                 //                  TRACE_I("Change of visible items array...");
@@ -1183,13 +1183,13 @@ unsigned IconThreadThreadFBody(void* parameter)
                             if (!UserMenuIconBkgndReader.IsReadingIcons())
                             {
                                 //                  TRACE_I("Usermenu icons done...");
-                                break; // pokud uz jsou ikony usermenu hotove, docteme ikony v panelu
+                                break; // if usermenu icons are already done, we read the remaining icons in the panel
                             }
                         }
                     }
-                    if (wait == WAIT_TIMEOUT) // je duvod zopakovat cteni ikon (zmena viditelne oblasti nebo dokonceni cteni ikon usermenu)
+                    if (wait == WAIT_TIMEOUT) // is reason to retry reading icons (visible area change or finishing reading usermenu icons)
                     {
-                        if (!UserMenuIconBkgndReader.IsReadingIcons()) // jsou-li ikony usermenu hotove, docteme ikony mimo viditelnou plochu
+                        if (!UserMenuIconBkgndReader.IsReadingIcons()) // if usermenu icons are done, read icons outside the visible area
                         {
                             //                if (someNameSkipped) TRACE_I("Usermenu icons done, going to read the rest of icons in panel...");
                             readOnlyVisibleItems = FALSE;
@@ -1199,7 +1199,7 @@ unsigned IconThreadThreadFBody(void* parameter)
                         //                if (someNameSkipped) TRACE_I("Going to reread visible icons in panel...");
                         if (someNameSkipped)
                         {
-                            repeatedRound = TRUE; // jde o kolo navic (nechceme, aby se znovu cetly ikon-overlays)
+                            repeatedRound = TRUE; // an extra round (we do not want to read icon overlays again)
                             goto SECOND_ROUND;
                         }
                         //              else
@@ -1207,12 +1207,12 @@ unsigned IconThreadThreadFBody(void* parameter)
                     }
                 }
 
-                if (wait == WAIT_TIMEOUT) // work is done -> informuj hl. thread
+                if (wait == WAIT_TIMEOUT) // work is done -> notify the main thread
                 {
                     if (window->Is(ptDisk) && failed && firstRound)
-                    {                                   // dame si to znovu (ne vsechny ikonky se povedly)
-                        firstRound = FALSE;             // jen jedno kolo navic
-                        waitBeforeFirstReadIcon = TRUE; // aby se ikona necetla okamzite znovu (mala sance na uspech)
+                        {                                   // we try again (not all icons were loaded)
+                            firstRound = FALSE;             // only one extra round
+                            waitBeforeFirstReadIcon = TRUE; // we prevent immediate rereading (low chance of success)
                                                         //              TRACE_I("Going to second round of reading (some icons have not been read in the first round).");
                         goto SECOND_ROUND;
                         // postRefresh = TRUE;
@@ -1221,14 +1221,14 @@ unsigned IconThreadThreadFBody(void* parameter)
                         firstRound = TRUE;
 
                     //            TRACE_I("Stop reading.");
-                    // posleme notifikaci o ukonceni nacitani ikonek v panelu
+                    // we send a notification that the reading of icons in the panel has finished
                     if (window->HWindow == NULL ||
                         !PostMessage(window->HWindow, WM_USER_ICONREADING_END, 0, 0))
-                    { // neco nevyslo ("always false"), nastavime IconCacheValid = TRUE tady
+                    { // something failed ("always false"), we set IconCacheValid = TRUE here
                         window->IconCacheValid = TRUE;
                     }
 
-                    //            if (window->HWindow != NULL)  // prubezne prekreslovani staci
+                    //            if (window->HWindow != NULL)  // continuous repainting is enough
                     //              InvalidateRect(window->HWindow, NULL, TRUE);
                 }
                 else
@@ -1236,7 +1236,7 @@ unsigned IconThreadThreadFBody(void* parameter)
 
                 GO_SLEEP_MODE:
 
-                    // preruseni (sleep-icon-cache-thread nebo nova prace nebo terminate)
+                    // interruption (sleep-icon-cache-thread or new work or terminate)
                     firstRound = TRUE;
                     //            TRACE_I("Reading terminated.");
                 }
@@ -1247,8 +1247,8 @@ unsigned IconThreadThreadFBody(void* parameter)
             window->ICSleep = FALSE;
             HANDLES(LeaveCriticalSection(&window->ICSleepSection));
 
-            /*    // nahrazeno pres goto SECOND_ROUND (na sitovem disku to zamrzi, kdyz se zacne cely obsah cist znovu)
-        if (postRefresh)  // odsun Sleep(500) z kriticke sekce - zbytecne tuhlo ...
+            /*    // replaced with goto SECOND_ROUND (reading the entire content again freezes on network drives)
+        if (postRefresh)  // moved Sleep(500) out of the critical section — it was freezing unnecessarily...
         {
           HANDLES(EnterCriticalSection(&TimeCounterSection));  // sejmeme cas, kdy je treba refreshe
           int t1 = MyTimeCounter++;
